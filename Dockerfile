@@ -18,6 +18,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 复制其余源代码
 COPY . .
 
+# 创建下载目录
+RUN mkdir -p /app/downloads
+
 # 启动 MCP 服务端 (stdio 传输模式)
 CMD ["python", "pubmed_server.py"]
 

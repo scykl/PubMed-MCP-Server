@@ -219,13 +219,16 @@ def download_full_text_pdf(pmid, api_key=None):
         print(f"You can try accessing the article directly at: {pmc_url}")
         return f"Error: Unable to download PDF (status code: {pdf_response.status_code})" + "\n" + f"You can try accessing the article directly at: {pmc_url}"
     
-    # 保存PDF文件
+    # 保存PDF文件 (优先保存至 downloads 目录以支持挂载卷持久化)
+    output_dir = os.environ.get("DOWNLOAD_DIR", "").strip() or ("downloads" if os.path.isdir("downloads") else ".")
+    os.makedirs(output_dir, exist_ok=True)
     filename = f"PMID_{pmid}_PMC_{pmc_id}.pdf"
-    with open(filename, 'wb') as f:
+    filepath = os.path.join(output_dir, filename)
+    with open(filepath, 'wb') as f:
         f.write(pdf_response.content)
     
-    print(f"PDF for PMID {pmid} has been downloaded as {filename}")
-    return f"PDF for PMID {pmid} has been downloaded as {filename}"
+    print(f"PDF for PMID {pmid} has been downloaded as {filepath}")
+    return f"PDF for PMID {pmid} has been downloaded as {filepath}"
 
 def deep_paper_analysis(paper_metadata):
     """

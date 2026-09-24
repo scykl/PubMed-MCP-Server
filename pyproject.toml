@@ -5,7 +5,7 @@ description = "An MCP server for searching, retrieving, and analyzing articles f
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "mcp[cli]>=1.4.1",
+    "mcp[cli]>=1.4.1,<2",
     "requests>=2.25.1",
     "beautifulsoup4>=4.9.3",
     "asyncio>=3.4.3",

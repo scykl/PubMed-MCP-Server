@@ -102,7 +102,7 @@ success "Docker 镜像构建成功！"
 
 # 7. 运行自检验证
 info "正在验证镜像运行状态..."
-docker run --rm --env-file "$ENV_FILE" pubmed-mcp:latest python -c "from pubmed_web_search import get_ncbi_api_key; print('Verification passed! API Key configured:', bool(get_ncbi_api_key()))"
+docker run --rm --env-file "$ENV_FILE" pubmed-mcp:latest python -c "from pubmed_web_search import get_ncbi_api_key; from pubmed_server import mcp; print('Verification passed! FastMCP loaded successfully. API Key configured:', bool(get_ncbi_api_key()))"
 
 echo ""
 info "================================================="
