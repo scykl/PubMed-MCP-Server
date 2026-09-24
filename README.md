@@ -74,34 +74,46 @@ Start the MCP server:
 python pubmed_server.py
 ```
 
-### Run with Docker
+### Run in HTTP / SSE Mode (Port 8090)
 
-1. **Build the Docker Image**:
+The server supports running as a persistent HTTP/SSE service on port `8090`, allowing remote clients to connect directly via URL without SSH.
+
+1. **Start with Docker (SSE Mode)**:
    ```bash
-   docker build -t pubmed-mcp .
+   docker run -d --name pubmed-mcp \
+     -p 8090:8090 \
+     -e MCP_TRANSPORT=sse \
+     -e MCP_PORT=8090 \
+     --env-file .env \
+     -v $(pwd)/downloads:/app/downloads \
+     --restart unless-stopped \
+     pubmed-mcp:latest
    ```
 
-2. **Run the Container with Environment Variables**:
-   > **Note**: For MCP `stdio` transport, the `-i` (interactive) flag is required so the standard input stream remains open.
+   Or simply with **Docker Compose**:
+   ```bash
+   docker compose up -d
+   ```
 
-   - **Option 1: Pass API Key via `-e`**:
-     ```bash
-     docker run -i --rm -e NCBI_API_KEY="your_ncbi_api_key_here" pubmed-mcp
+2. **Connect from AI Clients (Cursor / Windsurf / Dify / Claude Desktop)**:
+   - **Endpoint URL**: `http://YOUR_VPS_IP:8090/sse`
+   - **Cursor**: Settings -> Features -> MCP -> Add New MCP Server:
+     - Name: `pubmed`
+     - Type: `SSE`
+     - URL: `http://YOUR_VPS_IP:8090/sse`
+   - **Claude Desktop / Cline** (`claude_desktop_config.json`):
+     ```json
+     {
+       "mcpServers": {
+         "pubmed": {
+           "type": "sse",
+           "url": "http://YOUR_VPS_IP:8090/sse"
+         }
+       }
+     }
      ```
 
-   - **Option 2: Pass Environment Variables via `.env` file**:
-     ```bash
-     cp .env.example .env
-     # Edit .env with your NCBI_API_KEY
-     docker run -i --rm --env-file .env pubmed-mcp
-     ```
-
-   - **Option 3: Mount a volume to persist downloaded PDFs**:
-     ```bash
-     docker run -i --rm -e NCBI_API_KEY="your_ncbi_api_key_here" -v $(pwd)/downloads:/app pubmed-mcp
-     ```
-
-3. **Configure Docker in MCP Clients (Claude Desktop / Cursor / Cline)**:
+### Run with Docker (stdio Mode)
 
    ```json
    {

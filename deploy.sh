@@ -111,27 +111,31 @@ info "================================================="
 echo -e "
 ${GREEN}常用操作指南:${NC}
 
-1. ${YELLOW}进入项目目录:${NC}
+1. ${YELLOW}以 HTTP/SSE 模式后台启动服务 (推荐，免配 SSH 密钥):${NC}
    cd $INSTALL_DIR
+   docker compose up -d
+   # 服务将常驻运行在 http://您的VPS_IP:8090/sse
 
-2. ${YELLOW}单次交互式运行 (用于 MCP 协议对接):${NC}
+2. ${YELLOW}进入项目目录查看日志:${NC}
+   cd $INSTALL_DIR
+   docker compose logs -f
+
+3. ${YELLOW}单次交互式运行 (用于 stdio 模式本地测试):${NC}
    docker run -i --rm --env-file .env -v \$(pwd)/downloads:/app/downloads pubmed-mcp:latest
 
-3. ${YELLOW}修改 NCBI_API_KEY:${NC}
-   vim $INSTALL_DIR/.env
+4. ${YELLOW}修改配置 (NCBI_API_KEY / 端口):${NC}
+   nano $INSTALL_DIR/.env
    # 修改保存后重新运行即可生效
 
-4. ${YELLOW}远程客户端配置 (通过 SSH 连接 VPS 容器):${NC}
-   如果客户端支持通过 SSH 执行命令启动 MCP，可以使用如下配置:
-   {
-     \"mcpServers\": {
-       \"pubmed\": {
-         \"command\": \"ssh\",
-         \"args\": [
-           \"root@您的VPS_IP\",
-           \"docker\", \"run\", \"-i\", \"--rm\", \"--env-file\", \"/opt/pubmed-mcp-server/.env\", \"pubmed-mcp:latest\"
-         ]
+5. ${YELLOW}客户端配置 (HTTP/SSE 模式直连，无需 SSH 密钥):${NC}
+   - Cursor: Type 选择 SSE，URL 填入 http://您的VPS_IP:8090/sse
+   - Claude Desktop:
+     {
+       \"mcpServers\": {
+         \"pubmed\": {
+           \"type\": \"sse\",
+           \"url\": \"http://您的VPS_IP:8090/sse\"
+         }
        }
      }
-   }
 "

@@ -1,3 +1,5 @@
+import os
+import argparse
 from typing import Any, List, Dict, Optional, Union
 import asyncio
 import logging
@@ -14,8 +16,11 @@ from pubmed_web_search import (
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+DEFAULT_HOST = os.environ.get("MCP_HOST", "0.0.0.0")
+DEFAULT_PORT = int(os.environ.get("MCP_PORT", "8090"))
+
 # Initialize FastMCP server
-mcp = FastMCP("pubmed")
+mcp = FastMCP("pubmed", host=DEFAULT_HOST, port=DEFAULT_PORT)
 
 @mcp.tool()
 async def search_pubmed_key_words(key_words: str, num_results: int = 10) -> List[Dict[str, Any]]:
@@ -138,11 +143,40 @@ async def deep_paper_analysis(pmid: Union[str, int]) -> Dict[str, str]:
         return {"error": f"An error occurred while performing the deep paper analysis: {str(e)}"}
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="PubMed MCP Server")
+    parser.add_argument(
+        "--transport",
+        default=os.environ.get("MCP_TRANSPORT", "stdio").lower(),
+        choices=["stdio", "sse"],
+        help="Transport mode: stdio or sse (default: from MCP_TRANSPORT or stdio)"
+    )
+    parser.add_argument(
+        "--host",
+        default=DEFAULT_HOST,
+        help=f"Host to bind for SSE transport (default: {DEFAULT_HOST})"
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=DEFAULT_PORT,
+        help=f"Port to bind for SSE transport (default: {DEFAULT_PORT})"
+    )
+    args = parser.parse_args()
+
     api_key = get_ncbi_api_key()
     if api_key:
         logging.info("NCBI_API_KEY detected. Rate limit set to up to 10 requests/second.")
     else:
         logging.info("NCBI_API_KEY not found. Operating with default rate limit (up to 3 requests/second).")
-    logging.info("Starting PubMed MCP server")
-    # Initialize and run the server
-    mcp.run(transport='stdio')
+
+    # 动态更新 settings (如果存在)
+    if hasattr(mcp, "settings"):
+        mcp.settings.host = args.host
+        mcp.settings.port = args.port
+
+    if args.transport == "sse":
+        logging.info(f"Starting PubMed MCP server in SSE mode on http://{args.host}:{args.port}/sse")
+        mcp.run(transport='sse')
+    else:
+        logging.info("Starting PubMed MCP server in stdio mode")
+        mcp.run(transport='stdio')
