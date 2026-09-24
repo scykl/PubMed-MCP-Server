@@ -80,9 +80,9 @@ if [ ! -f "$ENV_FILE" ]; then
     info "配置环境变量..."
     # 优先读取传入的参数或环境变量
     NCBI_KEY="${NCBI_API_KEY:-}"
-    if [ -z "$NCBI_KEY" ]; then
+    if [ -z "$NCBI_KEY" ] && [ -e /dev/tty ]; then
         echo -e "${YELLOW}请输入您的 NCBI_API_KEY（可选，直接按回车可跳过）:${NC} "
-        read -r input_key || input_key=""
+        read -r input_key < /dev/tty 2>/dev/null || input_key=""
         NCBI_KEY="$input_key"
     fi
 
@@ -102,13 +102,7 @@ success "Docker 镜像构建成功！"
 
 # 7. 运行自检验证
 info "正在验证镜像运行状态..."
-TEST_OUTPUT=$(docker run --rm -i --env-file "$ENV_FILE" pubmed-mcp:latest python -c "
-import os
-from pubmed_web_search import get_ncbi_api_key, rate_limiter
-key = get_ncbi_api_key()
-print(f'Verification passed! API Key configured: {bool(key)}')
-")
-echo "$TEST_OUTPUT"
+docker run --rm --env-file "$ENV_FILE" pubmed-mcp:latest python -c "from pubmed_web_search import get_ncbi_api_key; print('Verification passed! API Key configured:', bool(get_ncbi_api_key()))"
 
 echo ""
 info "================================================="
