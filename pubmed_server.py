@@ -2,7 +2,14 @@ from typing import Any, List, Dict, Optional, Union
 import asyncio
 import logging
 from mcp.server.fastmcp import FastMCP
-from pubmed_web_search import search_key_words, search_advanced, get_pubmed_metadata, download_full_text_pdf, deep_paper_analysis
+from pubmed_web_search import (
+    search_key_words,
+    search_advanced,
+    get_pubmed_metadata,
+    download_full_text_pdf,
+    deep_paper_analysis,
+    get_ncbi_api_key
+)
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -131,6 +138,11 @@ async def deep_paper_analysis(pmid: Union[str, int]) -> Dict[str, str]:
         return {"error": f"An error occurred while performing the deep paper analysis: {str(e)}"}
 
 if __name__ == "__main__":
+    api_key = get_ncbi_api_key()
+    if api_key:
+        logging.info("NCBI_API_KEY detected. Rate limit set to up to 10 requests/second.")
+    else:
+        logging.info("NCBI_API_KEY not found. Operating with default rate limit (up to 3 requests/second).")
     logging.info("Starting PubMed MCP server")
     # Initialize and run the server
     mcp.run(transport='stdio')

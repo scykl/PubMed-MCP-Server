@@ -1,12 +1,75 @@
 import xml.etree.ElementTree as ET
 from urllib.parse import quote
 import os
+import time
+import threading
+import logging
 from collections import Counter
 import re
 import requests
 
+logger = logging.getLogger(__name__)
+
+def get_ncbi_api_key(api_key=None):
+    """获取 NCBI API Key，优先使用显式传入的 key，其次使用环境变量 NCBI_API_KEY"""
+    if api_key and str(api_key).strip():
+        return str(api_key).strip()
+    env_key = os.environ.get("NCBI_API_KEY", "").strip()
+    return env_key if env_key else None
+
+class NCBIRateLimiter:
+    """NCBI E-Utilities 请求速率限制器 (线程安全)
+    - 无 API Key: 最多 3 次/秒 (请求间隔 >= 0.35 秒)
+    - 有 API Key: 最多 10 次/秒 (请求间隔 >= 0.11 秒)
+    """
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._last_request_time = 0.0
+
+    def wait(self, api_key=None):
+        has_key = bool(get_ncbi_api_key(api_key))
+        min_interval = 0.11 if has_key else 0.35
+        
+        with self._lock:
+            now = time.monotonic()
+            elapsed = now - self._last_request_time
+            if elapsed < min_interval:
+                time.sleep(min_interval - elapsed)
+            self._last_request_time = time.monotonic()
+
+# 全局单例速率限制器
+rate_limiter = NCBIRateLimiter()
+
+def make_ncbi_request(url, params=None, headers=None, api_key=None, max_retries=3):
+    """发送 NCBI 请求并执行速率限制与指数退避重试防护"""
+    req_params = params.copy() if params else {}
+    key = get_ncbi_api_key(api_key)
+    if key and "api_key" not in req_params:
+        if "api_key=" not in url:
+            req_params["api_key"] = key
+    
+    last_response = None
+    for attempt in range(max_retries):
+        rate_limiter.wait(key)
+        try:
+            response = requests.get(url, params=req_params if req_params else None, headers=headers, timeout=30)
+            if response.status_code == 429:
+                backoff = (attempt + 1) * 1.5
+                logger.warning(f"NCBI rate limit (429) hit, retrying in {backoff:.1f}s (attempt {attempt + 1}/{max_retries})...")
+                time.sleep(backoff)
+                last_response = response
+                continue
+            return response
+        except requests.RequestException as e:
+            if attempt == max_retries - 1:
+                logger.error(f"Request failed after {max_retries} attempts: {e}")
+                raise e
+            time.sleep(1)
+            
+    return last_response
+
 def generate_pubmed_search_url(term=None, title=None, author=None, journal=None, 
-                               start_date=None, end_date=None, num_results=10):
+                               start_date=None, end_date=None, num_results=10, api_key=None):
     """根据用户输入的字段生成 PubMed 搜索 URL"""
     base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
     query_parts = []
@@ -29,14 +92,17 @@ def generate_pubmed_search_url(term=None, title=None, author=None, journal=None,
         "retmax": num_results,
         "retmode": "xml"
     }
+    key = get_ncbi_api_key(api_key)
+    if key:
+        params["api_key"] = key
     
     return f"{base_url}?{'&'.join([f'{k}={v}' for k, v in params.items()])}"
 
-def search_pubmed(search_url):
+def search_pubmed(search_url, api_key=None):
     """从 PubMed 搜索结果中解析文章 ID"""
-    response = requests.get(search_url)
+    response = make_ncbi_request(search_url, api_key=api_key)
     
-    if response.status_code == 200:
+    if response is not None and response.status_code == 200:
         root = ET.fromstring(response.content)
         id_list = root.find("IdList")
         if id_list is not None:
@@ -45,15 +111,21 @@ def search_pubmed(search_url):
             print("No results found.")
             return []
     else:
-        print(f"Error: Unable to fetch data (status code: {response.status_code})")
+        status = response.status_code if response is not None else "Unknown"
+        print(f"Error: Unable to fetch data (status code: {status})")
         return []
 
-def get_pubmed_metadata(pmid):
+def get_pubmed_metadata(pmid, api_key=None):
     """使用 PubMed API 通过 PMID 获取文章的详细元数据"""
-    url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id={pmid}&retmode=xml"
-    response = requests.get(url)
+    url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
+    params = {
+        "db": "pubmed",
+        "id": pmid,
+        "retmode": "xml"
+    }
+    response = make_ncbi_request(url, params=params, api_key=api_key)
     
-    if response.status_code == 200:
+    if response is not None and response.status_code == 200:
         root = ET.fromstring(response.content)
         article = root.find(".//Article")
         if article is not None:
@@ -88,23 +160,30 @@ def get_pubmed_metadata(pmid):
             print(f"No article data found for PMID: {pmid}")
             return None
     else:
-        print(f"Error: Unable to fetch metadata (status code: {response.status_code})")
+        status = response.status_code if response is not None else "Unknown"
+        print(f"Error: Unable to fetch metadata (status code: {status})")
         return None
 
-def download_full_text_pdf(pmid):
+def download_full_text_pdf(pmid, api_key=None):
     """尝试下载全文 PDF 或提供文章链接"""
     print(f"Attempting to access full text for PMID: {pmid}")
     
     # 首先，我们需要检查这篇文章是否有PMC ID
-    efetch_url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id={pmid}&retmode=xml"
+    efetch_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
+    params = {
+        "db": "pubmed",
+        "id": pmid,
+        "retmode": "xml"
+    }
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
     }
-    response = requests.get(efetch_url, headers=headers)
+    response = make_ncbi_request(efetch_url, params=params, headers=headers, api_key=api_key)
     
-    if response.status_code != 200:
-        print(f"Error: Unable to fetch article data (status code: {response.status_code})")
-        return f"Error: Unable to fetch article data (status code: {response.status_code})"
+    if response is None or response.status_code != 200:
+        status = response.status_code if response is not None else "Unknown"
+        print(f"Error: Unable to fetch article data (status code: {status})")
+        return f"Error: Unable to fetch article data (status code: {status})"
     
     root = ET.fromstring(response.content)
     pmc_id = root.find(".//ArticleId[@IdType='pmc']")
@@ -124,7 +203,7 @@ def download_full_text_pdf(pmid):
     if pmc_response.status_code != 200:
         print(f"Error: Unable to access PMC article page (status code: {pmc_response.status_code})")
         print(f"You can check the article availability at: {pmc_url}")
-        return f"Error: Unable to access PMC article page (status code: {pmc_response.status_code})" + "\n" + f"You can check the article availability at: {pmc_url}"f"You can check the article availability at: {pmc_url}"
+        return f"Error: Unable to access PMC article page (status code: {pmc_response.status_code})" + "\n" + f"You can check the article availability at: {pmc_url}"
     
     if "This article is available under a" not in pmc_response.text:
         print(f"The article doesn't seem to be fully open access.")
@@ -190,35 +269,36 @@ Ensure your analysis is thorough, objective, and based on the information provid
     
     return prompt
 
-def search_key_words(key_words, num_results=10):
+def search_key_words(key_words, num_results=10, api_key=None):
     # 生成搜索 URL
-    search_url = generate_pubmed_search_url(term=key_words, num_results=num_results)
+    search_url = generate_pubmed_search_url(term=key_words, num_results=num_results, api_key=api_key)
     print("Generated URL:", search_url)
 
     # 获取并解析搜索结果
-    pmids = search_pubmed(search_url)
+    pmids = search_pubmed(search_url, api_key=api_key)
     
     articles = []
     for pmid in pmids:
-        metadata = get_pubmed_metadata(pmid)
+        metadata = get_pubmed_metadata(pmid, api_key=api_key)
         if metadata:
             articles.append(metadata)
     
     return articles
 
-def search_advanced(term, title, author, journal, start_date, end_date, num_results):
+def search_advanced(term, title, author, journal, start_date, end_date, num_results, api_key=None):
     # 生成搜索 URL
     search_url = generate_pubmed_search_url(term=term, title=title, author=author, 
                                             journal=journal, start_date=start_date, 
-                                            end_date=end_date, num_results=num_results)
+                                            end_date=end_date, num_results=num_results,
+                                            api_key=api_key)
     print("Generated URL:", search_url)
 
     # 获取并解析搜索结果
-    pmids = search_pubmed(search_url)
+    pmids = search_pubmed(search_url, api_key=api_key)
     
     articles = []
     for pmid in pmids:
-        metadata = get_pubmed_metadata(pmid)
+        metadata = get_pubmed_metadata(pmid, api_key=api_key)
         if metadata:
             articles.append(metadata)
     

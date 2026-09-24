@@ -1,0 +1,12 @@
+services:
+  pubmed-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: pubmed-mcp:latest
+    container_name: pubmed-mcp
+    stdin_open: true  # 保持 STDIN 开启以支持 MCP stdio 传输
+    environment:
+      - NCBI_API_KEY=${NCBI_API_KEY:-}
+    volumes:
+      - ./downloads:/app

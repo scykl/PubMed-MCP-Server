@@ -66,11 +66,83 @@ npx -y @smithery/cli@latest install @JackKuo666/pubmed-mcp-server --client cline
 
 ## 📊 Usage
 
+### Run Locally
+
 Start the MCP server:
 
 ```bash
 python pubmed_server.py
 ```
+
+### Run with Docker
+
+1. **Build the Docker Image**:
+   ```bash
+   docker build -t pubmed-mcp .
+   ```
+
+2. **Run the Container with Environment Variables**:
+   > **Note**: For MCP `stdio` transport, the `-i` (interactive) flag is required so the standard input stream remains open.
+
+   - **Option 1: Pass API Key via `-e`**:
+     ```bash
+     docker run -i --rm -e NCBI_API_KEY="your_ncbi_api_key_here" pubmed-mcp
+     ```
+
+   - **Option 2: Pass Environment Variables via `.env` file**:
+     ```bash
+     cp .env.example .env
+     # Edit .env with your NCBI_API_KEY
+     docker run -i --rm --env-file .env pubmed-mcp
+     ```
+
+   - **Option 3: Mount a volume to persist downloaded PDFs**:
+     ```bash
+     docker run -i --rm -e NCBI_API_KEY="your_ncbi_api_key_here" -v $(pwd)/downloads:/app pubmed-mcp
+     ```
+
+3. **Configure Docker in MCP Clients (Claude Desktop / Cursor / Cline)**:
+
+   ```json
+   {
+     "mcpServers": {
+       "pubmed": {
+         "command": "docker",
+         "args": [
+           "run",
+           "-i",
+           "--rm",
+           "-e",
+           "NCBI_API_KEY=YOUR_API_KEY_HERE",
+           "pubmed-mcp"
+         ]
+       }
+     }
+   }
+   ```
+
+## ⚙️ Configuration & Rate Limiting (NCBI API Key)
+
+NCBI E-Utilities enforces request limits:
+- **Without API Key**: Maximum **3 requests/second**.
+- **With API Key**: Maximum **10 requests/second**.
+
+To prevent HTTP 429 rate limit errors when executing concurrent or batch queries, you can obtain a free NCBI API Key by creating an account at [NCBI Account Settings](https://www.ncbi.nlm.nih.gov/account/settings/).
+
+Set the `NCBI_API_KEY` environment variable in your system, or include it in your MCP configuration:
+
+- **Linux / macOS**:
+  ```bash
+  export NCBI_API_KEY="your_ncbi_api_key_here"
+  ```
+- **Windows (Command Prompt / PowerShell)**:
+  ```cmd
+  set NCBI_API_KEY=your_ncbi_api_key_here
+  ```
+  ```powershell
+  $env:NCBI_API_KEY="your_ncbi_api_key_here"
+  ```
+
 ## Usage with Claude Desktop
 
 Add this configuration to your `claude_desktop_config.json`:
@@ -82,8 +154,11 @@ Add this configuration to your `claude_desktop_config.json`:
   "mcpServers": {
     "pubmed": {
       "command": "python",
-      "args": ["-m", "pubmed-mcp-server"]
+      "args": ["-m", "pubmed-mcp-server"],
+      "env": {
+        "NCBI_API_KEY": "YOUR_API_KEY_HERE"
       }
+    }
   }
 }
 ```
@@ -98,14 +173,18 @@ Add this configuration to your `claude_desktop_config.json`:
       "args": [
         "D:\\code\\YOUR\\PATH\\PubMed-MCP-Server\\pubmed_server.py"
       ],
-      "env": {},
+      "env": {
+        "NCBI_API_KEY": "YOUR_API_KEY_HERE"
+      },
       "disabled": false,
       "autoApprove": []
     }
   }
 }
 ```
+
 Using with Cline
+
 ```json
 {
   "mcpServers": {
@@ -115,7 +194,9 @@ Using with Cline
         "-c",
         "source /home/YOUR/PATH/mcp-server-pubmed/.venv/bin/activate && python /home/YOUR/PATH/pubmed-mcp-server.py"
       ],
-      "env": {},
+      "env": {
+        "NCBI_API_KEY": "YOUR_API_KEY_HERE"
+      },
       "disabled": false,
       "autoApprove": []
     }
